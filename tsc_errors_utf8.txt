@@ -1,0 +1,20 @@
+﻿src/modules/admin/admin.service.ts(303,35): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/modules/admin/admin.service.ts(309,40): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/modules/ai/ai.service.ts(75,14): error TS7006: Parameter 'clinic' implicitly has an 'any' type.
+src/modules/ai/ai.service.ts(84,14): error TS7006: Parameter 'plan' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(209,22): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(214,13): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(321,41): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(321,44): error TS7006: Parameter 'i' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(336,38): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(341,81): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(343,54): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(350,61): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(350,64): error TS7006: Parameter 'i' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(435,21): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/modules/booking/booking.service.ts(467,37): error TS2339: Property 'appointment' does not exist on type 'Omit<PrismaClient<PrismaClientOptions, never, $Extensions.DefaultArgs>, runtime.ITXClientDenyList>'.
+src/modules/booking/booking.service.ts(477,31): error TS2339: Property 'appointment' does not exist on type 'Omit<PrismaClient<PrismaClientOptions, never, $Extensions.DefaultArgs>, runtime.ITXClientDenyList>'.
+src/modules/booking/booking.service.ts(494,18): error TS2339: Property 'bookingDraft' does not exist on type 'Omit<PrismaClient<PrismaClientOptions, never, $Extensions.DefaultArgs>, runtime.ITXClientDenyList>'.
+src/modules/simulator/simulator.controller.ts(194,23): error TS7006: Parameter 'lead' implicitly has an 'any' type.
+src/modules/simulator/simulator.controller.ts(225,30): error TS7006: Parameter 'appt' implicitly has an 'any' type.
+src/modules/whatsapp/whatsapp.service.ts(355,32): error TS7006: Parameter 'log' implicitly has an 'any' type.

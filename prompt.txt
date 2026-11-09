@@ -1,0 +1,52 @@
+The following is an excerpt from my system prompts file, where all my additional prompts are added to the user's text or voice transcripts:
+// ============================================================================
+// 2. VOICE PIPELINE - GATEWAY INTENT CLASSIFICATION
+// ============================================================================
+/**
+ * System Prompt for the Intent Classification Gateway.
+ *
+ * Origin: VoicePipelineService (`src/modules/voice-pipeline/voice-pipeline.service.ts`)
+ * Used By: `VoicePipelineService.classifyIntent()`
+ *
+ * Purpose:
+ *   Enforces strict, raw JSON output format for fast and reliable 3-way
+ *   classification of incoming voice transcriptions.
+ */
+export const INTENT_CLASSIFIER_SYSTEM_PROMPT =
+  'You are an accurate intent classification gateway. Return ONLY valid JSON.';
+/**
+ * User Prompt Builder for Intent Classification.
+ *
+ * Origin: VoicePipelineService (`src/modules/voice-pipeline/voice-pipeline.service.ts`)
+ * Used By: `VoicePipelineService.classifyIntent()`
+ *
+ * Categories:
+ *   1. "BOOKING_SESSION" - scheduling, rescheduling, confirming clinic appointments.
+ *   2. "CLINICAL_INTAKE" - active pain, emergencies, swelling, bleeding symptoms.
+ *   3. "HEALTH_EDUCATION" - general oral health, brushing, flossing, dental queries.
+ */
+export function buildIntentClassificationPrompt(transcript: string): string {
+  return `Classify the following transcribed user message into exactly one category:
+"BOOKING_SESSION": The user wants to book, schedule, reschedule, or confirm an appointment/session/visit with a dentist (e.g. "I want to book an appointment tomorrow at 10am", "schedule a dental cleaning session", "can I book for next Monday", "naomba kupanga miadi ya kuona daktari kesho").
+"CLINICAL_INTAKE": The user is describing active pain, a personal dental emergency, severe symptoms, bleeding, broken teeth, toothache, or swelling without explicitly asking to book a session slot.
+"HEALTH_EDUCATION": The user is asking a general educational question about oral hygiene, brushing, flossing, children's teeth, food/diet effects, or how common dental procedures work.
+Transcript: "${transcript}"
+Output format: ONLY a valid raw JSON object, without markdown formatting or code fences:
+{"intent": "BOOKING_SESSION" | "CLINICAL_INTAKE" | "HEALTH_EDUCATION", "confidence": 0.95}`;
+}
+Does using Jev here save me on any token use, and is that a good architectural decision?
+
+
+
+
+
+
+
+
+
+
+
+
+
+I want to change my WhatsApp implementation from using the meta API directly to using flaresend. I've already set up everything I need from the flaresend dashboard. 
+However, this is meant as a temporary solution while I figure out making whatsapp work directly from the Meta API. So I wouldn't want this change to completely erase the meta implementation. If you need any info for how to implement whatsapp messaging capabilities with flaresend, read the docs in the md file: flaresend-api-documentation-main.md

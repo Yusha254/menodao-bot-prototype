@@ -1,0 +1,152 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+model Clinic {
+  id        String   @id @default(uuid())
+  name      String
+  address   String
+  city      String
+  phone     String
+  services  String[]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model InsurancePlan {
+  id            String   @id @default(uuid())
+  name          String
+  monthlyCost   Float
+  coveragePerks String[]
+  signupUrl     String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model User {
+  id              String        @id @default(uuid())
+  whatsappId      String        @unique
+  phone           String?       @unique
+  phoneVerifiedAt DateTime?
+  phoneConsentAt  DateTime?
+  name            String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  messages        MessageLog[]
+  leads           Lead[]
+  appointments    Appointment[]
+  bookingDraft    BookingDraft?
+}
+
+model AdminUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  googleId     String?  @unique
+  authProvider String   @default("local")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PhoneRegistrationChallenge {
+  id               String    @id @default(uuid())
+  phone            String
+  codeHash         String    @unique @map("pairingCodeHash")
+  expiresAt        DateTime
+  consentedAt      DateTime
+  linkedAt         DateTime?
+  linkedWhatsappId String?
+  createdAt        DateTime  @default(now())
+
+  @@index([phone, createdAt])
+  @@index([expiresAt])
+}
+
+model MessageLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model LlmCallLog {
+  id             String   @id @default(uuid())
+  provider       String
+  model          String
+  operation      String
+  responseFormat String?
+  systemPrompt   String   @db.Text
+  userPrompt     String   @db.Text
+  history        String   @db.Text
+  response       String?  @db.Text
+  status         String
+  error          String?  @db.Text
+  durationMs     Int
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([operation, createdAt])
+}
+
+model Lead {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  notes     String?
+  status    String   @default("NEW")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Appointment {
+  id                 String    @id @default(uuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id])
+  clientName         String
+  phone              String
+  clinicId           String?
+  clinicName         String?
+  service            String
+  scheduledAt        DateTime
+  status             String    @default("BOOKED") // BOOKED | CONFIRMED | CANCELLED | COMPLETED
+  notes              String?
+  bookedVia          String    @default("AI_AGENT") // AI_AGENT | MANUAL
+  confirmationSentAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([scheduledAt])
+  @@index([status])
+}
+
+model BookingDraft {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinicId         String?
+  service          String?
+  date             String? // YYYY-MM-DD, Africa/Nairobi
+  time             String? // HH:mm, 24h, Africa/Nairobi
+  clientName       String?
+  rawDateMentioned String?
+  language         String   @default("en") // "en" | "sw"
+  status           String   @default("COLLECTING") // COLLECTING | AWAITING_CONFIRMATION
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
