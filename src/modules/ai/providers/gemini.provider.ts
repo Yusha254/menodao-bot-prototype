@@ -20,7 +20,13 @@ export class GeminiProvider implements ILlmProvider {
   }
 
   async generateCompletion(options: GenerateResponseOptions): Promise<string> {
-    const { systemPrompt, userPrompt, history = [], responseFormat } = options;
+    const {
+      systemPrompt,
+      userPrompt,
+      history = [],
+      image,
+      responseFormat,
+    } = options;
 
     const contents = [
       ...history.map((turn) => ({
@@ -29,7 +35,19 @@ export class GeminiProvider implements ILlmProvider {
       })),
       {
         role: 'user',
-        parts: [{ text: userPrompt }],
+        parts: [
+          { text: userPrompt },
+          ...(image
+            ? [
+                {
+                  inlineData: {
+                    mimeType: image.mimeType,
+                    data: image.data.toString('base64'),
+                  },
+                },
+              ]
+            : []),
+        ],
       },
     ];
 

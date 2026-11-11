@@ -78,6 +78,16 @@ Configure its incoming-message webhook to `https://<your-domain>/webhook` (or
 `/webhook/waboxapp`). FlareSend remains available with its existing
 `FLARESEND_API_KEY` and `FLARESEND_BASE_URL` settings.
 
+### Flaresend Image Messages
+
+Flaresend inbound image messages are downloaded from the WhatsApp media CDN,
+authenticated and decrypted before being sent to the configured Gemini or
+OpenAI model. JPEG, PNG, and WebP images up to 10 MB are supported. Images are
+not stored in PostgreSQL or written to application logs; image captions and
+ordinary prompts may still be logged as part of the existing conversation and
+LLM-call logging. Image replies describe visible content but do not diagnose
+dental conditions.
+
 ## Patient WhatsApp Registration
 
 The hosted registration page is available at `https://<your-domain>/register`.

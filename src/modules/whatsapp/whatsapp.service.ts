@@ -4,10 +4,12 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { VoicePipelineService } from '../voice-pipeline/voice-pipeline.service';
 import { WhatsappApiClient } from './whatsapp-api.client';
+import { FlaresendApiClient } from './flaresend-api.client';
 import {
   IWhatsappClient,
   WHATSAPP_CLIENT,
 } from './interfaces/whatsapp-provider.interface';
+import { LlmImageInput } from '../ai/interfaces/llm-provider.interface';
 import { WhatsappIdentityService } from './whatsapp-identity.service';
 import {
   WhatsappContact,
@@ -17,6 +19,7 @@ import {
 import {
   FlaresendWebhookPayload,
   FlaresendMessageData,
+  FlaresendImageMessage,
 } from './flaresend-webhook.types';
 import { WaboxappWebhookPayload } from './waboxapp-webhook.types';
 
@@ -34,6 +37,7 @@ export class WhatsappService {
     private readonly voicePipelineService: VoicePipelineService,
     @Inject(WHATSAPP_CLIENT)
     private readonly whatsappClient: IWhatsappClient,
+    private readonly flaresendApiClient: FlaresendApiClient,
     private readonly metaApiClient: WhatsappApiClient,
     private readonly whatsappIdentityService: WhatsappIdentityService,
   ) {}
@@ -276,7 +280,38 @@ export class WhatsappService {
 
     const contactName = data.pushName || data.name || undefined;
 
-    const messageText = this.extractFlaresendMessageText(data);
+    const imageMessage = data.message?.imageMessage;
+    if (imageMessage) {
+      const metadata: Record<string, unknown> = imageMessage;
+      const fields = Object.keys(metadata)
+        .filter((field) => /^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(field))
+        .sort()
+        .slice(0, 30);
+      const mimetype =
+        typeof metadata.mimetype === 'string' &&
+        /^[\w.+-]+\/[\w.+-]+$/.test(metadata.mimetype)
+          ? metadata.mimetype
+          : 'unknown';
+      const rawSize = metadata.fileLength ?? metadata.fileSize;
+      const fileSize =
+        (typeof rawSize === 'number' &&
+          Number.isSafeInteger(rawSize) &&
+          rawSize >= 0) ||
+        (typeof rawSize === 'string' && /^\d{1,15}$/.test(rawSize))
+          ? String(rawSize)
+          : 'unknown';
+
+      this.logger.log(
+        `Received Flaresend image metadata (fields=${fields.join(',') || 'none'}, ` +
+          `mimetype=${mimetype}, fileSize=${fileSize}).`,
+      );
+    }
+
+    const messageText =
+      this.extractFlaresendMessageText(data) ??
+      (imageMessage
+        ? 'Please describe this image and share what you would like to know.'
+        : null);
     if (messageText && /^\d{6}$/.test(messageText)) {
       const linked = await this.whatsappIdentityService.verifyLinkCode(
         whatsappId,
@@ -344,6 +379,7 @@ export class WhatsappService {
       messageId: data.id,
       messageText,
       contactName,
+      imageMessage,
     });
   }
 
@@ -443,9 +479,16 @@ export class WhatsappService {
     messageId: string;
     messageText: string;
     contactName?: string;
+    imageMessage?: FlaresendImageMessage;
   }): Promise<void> {
-    const { senderId, fallbackPhone, messageId, messageText, contactName } =
-      params;
+    const {
+      senderId,
+      fallbackPhone,
+      messageId,
+      messageText,
+      contactName,
+      imageMessage,
+    } = params;
 
     try {
       await this.whatsappClient.markMessageAsRead(messageId);
@@ -506,12 +549,36 @@ export class WhatsappService {
         ],
       });
     } else {
+      let image: LlmImageInput | undefined;
+      if (imageMessage) {
+        try {
+          image = await this.flaresendApiClient.downloadImage(imageMessage);
+        } catch (error) {
+          replyText =
+            'Sorry, I could not open that image. Please resend a clear JPEG, PNG, or WebP under 10 MB, or describe your question in text.';
+          this.logger.warn(
+            `Flaresend image processing failed: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`,
+          );
+          await this.prisma.messageLog.createMany({
+            data: [
+              { userId: user.id, role: 'user', content: messageText },
+              { userId: user.id, role: 'assistant', content: replyText },
+            ],
+          });
+          await this.whatsappClient.sendTextMessage(recipientPhone, replyText);
+          return;
+        }
+      }
+
       const result = await this.voicePipelineService.processTextPipeline(
         messageText,
         recipientPhone,
         undefined,
         undefined,
         senderId,
+        image,
       );
       replyText = result.patientMessage;
     }

@@ -9,17 +9,24 @@ export interface FlaresendMessageContextInfo {
   messageSecret?: string;
 }
 
+export interface FlaresendImageMessage {
+  caption?: string;
+  mimetype?: string;
+  url?: string;
+  directPath?: string;
+  mediaKey?: unknown;
+  fileLength?: number | string;
+  fileSize?: number | string;
+  [key: string]: unknown;
+}
+
 export interface FlaresendMessageContent {
   conversation?: string;
   extendedTextMessage?: {
     text?: string;
     [key: string]: any;
   };
-  imageMessage?: {
-    caption?: string;
-    mimetype?: string;
-    [key: string]: any;
-  };
+  imageMessage?: FlaresendImageMessage;
   videoMessage?: {
     caption?: string;
     mimetype?: string;

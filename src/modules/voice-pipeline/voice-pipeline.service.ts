@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AssemblyAiService } from '../assemblyai/assemblyai.service';
 import {
   ILlmProvider,
+  LlmImageInput,
   LLM_PROVIDER,
 } from '../ai/interfaces/llm-provider.interface';
 import { randomUUID } from 'crypto';
@@ -133,6 +134,7 @@ export class VoicePipelineService {
     // Keep an opaque provider identity (for example a WhatsApp LID) separate
     // from the phone used for appointment records and outbound replies.
     whatsappId: string = senderPhone,
+    image?: LlmImageInput,
   ): Promise<PipelineExecutionResult> {
     const sessionUuid = intakeUuid || randomUUID();
     this.logger.log(
@@ -201,6 +203,33 @@ export class VoicePipelineService {
         sessionUuid,
         detectedLanguage,
       );
+    }
+
+    if (image && classification.intent === 'HEALTH_EDUCATION') {
+      const stewardReply = await this.executeSyntheticSteward(
+        transcriptText,
+        image,
+      );
+
+      await this.prisma.messageLog.create({
+        data: {
+          userId: user.id,
+          role: 'assistant',
+          content: stewardReply,
+        },
+      });
+
+      return {
+        intakeUuid: sessionUuid,
+        senderPhone,
+        transcript: transcriptText,
+        detectedLanguage,
+        intent: 'HEALTH_EDUCATION',
+        intentConfidence: classification.confidence,
+        healthEducationReply: stewardReply,
+        patientMessage: stewardReply,
+        status: 'completed',
+      };
     }
 
     if (classification.intent === 'CLINICAL_INTAKE') {
@@ -450,13 +479,17 @@ export class VoicePipelineService {
   /**
    * Path 2: The Synthetic Steward - Conversational Health Education.
    */
-  private async executeSyntheticSteward(transcript: string): Promise<string> {
+  private async executeSyntheticSteward(
+    transcript: string,
+    image?: LlmImageInput,
+  ): Promise<string> {
     const systemPrompt = SYNTHETIC_STEWARD_SYSTEM_PROMPT;
     const userPrompt = buildSyntheticStewardUserPrompt(transcript);
 
     const response = await this.llmProvider.generateCompletion({
       systemPrompt,
       userPrompt,
+      image,
       operation: 'voice_health_education',
     });
 
