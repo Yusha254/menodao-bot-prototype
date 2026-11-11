@@ -122,6 +122,54 @@ describe('FlaresendApiClient', () => {
     expect(request?.headers.get('Authorization')).toBeUndefined();
   });
 
+  it('downloads and decrypts a Flaresend voice note', async () => {
+    const mediaKey = randomBytes(32);
+    const expandedKeys = Buffer.from(
+      hkdfSync(
+        'sha256',
+        mediaKey,
+        Buffer.alloc(0),
+        Buffer.from('WhatsApp Audio Keys'),
+        112,
+      ),
+    );
+    const iv = expandedKeys.subarray(0, 16);
+    const cipherKey = expandedKeys.subarray(16, 48);
+    const macKey = expandedKeys.subarray(48, 80);
+    const audioData = Buffer.from('OggS voice note payload');
+    const cipher = createCipheriv('aes-256-cbc', cipherKey, iv);
+    const ciphertext = Buffer.concat([
+      cipher.update(audioData),
+      cipher.final(),
+    ]);
+    const mac = createHmac('sha256', macKey)
+      .update(iv)
+      .update(ciphertext)
+      .digest()
+      .subarray(0, 10);
+    const encryptedData = Buffer.concat([ciphertext, mac]);
+    const adapter: AxiosAdapter = async (config) => ({
+      data: Readable.from([encryptedData]),
+      status: 200,
+      statusText: 'OK',
+      headers: new AxiosHeaders({ 'content-length': encryptedData.length }),
+      config,
+    });
+    jest.spyOn(axios, 'create').mockReturnValue(axios.create({ adapter }));
+    const client = new FlaresendApiClient(
+      new ConfigService({ FLARESEND_API_KEY: 'test-key' }),
+    );
+
+    const result = await client.downloadAudio({
+      url: 'https://mmg.whatsapp.net/v/audio.enc',
+      mediaKey: mediaKey.toString('base64'),
+      mimetype: 'audio/ogg; codecs=opus',
+      fileLength: audioData.length,
+    });
+
+    expect(result).toEqual(audioData);
+  });
+
   it('rejects image URLs outside the WhatsApp media host', async () => {
     const adapter = jest
       .fn<AxiosAdapter>()

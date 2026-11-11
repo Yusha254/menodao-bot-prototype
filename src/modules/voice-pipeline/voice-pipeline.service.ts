@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { BookingService } from '../booking/booking.service';
 import {
   BORDER_AGENT_SYSTEM_PROMPT,
+  DR_PAPI_FALLBACK_REPLY,
   INTENT_CLASSIFIER_SYSTEM_PROMPT,
   SYNTHETIC_STEWARD_SYSTEM_PROMPT,
   buildBorderAgentUserPrompt,
@@ -49,6 +50,9 @@ export interface PipelineExecutionResult {
   error?: string;
 }
 
+export const VOICE_NOTE_FALLBACK_REPLY =
+  'Samahani, hatukuweza kusikiliza ujumbe wako vizuri. Tafadhali jaribu kutuma tena au uandike kwa maneno.';
+
 const STATIC_CLINICAL_RECEIPT_SWAHILI =
   'Asante. Ujumbe wako wa sauti umepokelewa na kuandaliwa daktari wetu (Dr. Ruwa). ' +
   'Tutawasiliana nawe hivi karibuni kupitia nambari hii kupanga muda wa kuonana na daktari au kukupa maelekezo zaidi.\n\n---\n*Dr. Papi Foundation*';
@@ -72,6 +76,7 @@ export class VoicePipelineService {
     audioSource: Buffer | string,
     senderPhone: string = 'simulator-user',
     intakeUuid?: string,
+    whatsappId: string = senderPhone,
   ): Promise<PipelineExecutionResult> {
     const sessionUuid = intakeUuid || randomUUID();
     this.logger.log(
@@ -94,6 +99,7 @@ export class VoicePipelineService {
         senderPhone,
         sessionUuid,
         sttResult.languageCode,
+        whatsappId,
       );
     } catch (error) {
       this.logger.error(
@@ -107,8 +113,7 @@ export class VoicePipelineService {
         transcript: '',
         intent: 'HEALTH_EDUCATION',
         intentConfidence: 0,
-        patientMessage:
-          'Samahani, hatukuweza kusikiliza ujumbe wako vizuri. Tafadhali jaribu kutuma tena au uandike kwa maneno.',
+        patientMessage: VOICE_NOTE_FALLBACK_REPLY,
         status: 'failed',
         error: error instanceof Error ? error.message : String(error),
       };
@@ -486,14 +491,31 @@ export class VoicePipelineService {
     const systemPrompt = SYNTHETIC_STEWARD_SYSTEM_PROMPT;
     const userPrompt = buildSyntheticStewardUserPrompt(transcript);
 
-    const response = await this.llmProvider.generateCompletion({
-      systemPrompt,
-      userPrompt,
-      image,
-      operation: 'voice_health_education',
-    });
+    try {
+      const response = await this.llmProvider.generateCompletion({
+        systemPrompt,
+        userPrompt,
+        image,
+        operation: 'voice_health_education',
+      });
+      const reply = response.trim();
 
-    return response.trim();
+      if (reply) {
+        return reply;
+      }
+
+      this.logger.warn(
+        'Health education model returned an empty response; using fallback reply.',
+      );
+    } catch (error) {
+      this.logger.error(
+        `Health education model failed; using fallback reply: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    return DR_PAPI_FALLBACK_REPLY;
   }
 
   /**

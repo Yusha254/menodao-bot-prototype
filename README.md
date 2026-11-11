@@ -88,6 +88,16 @@ ordinary prompts may still be logged as part of the existing conversation and
 LLM-call logging. Image replies describe visible content but do not diagnose
 dental conditions.
 
+### Flaresend Voice Notes
+
+Flaresend inbound Ogg/Opus voice notes up to 16 MB are downloaded from the
+WhatsApp media CDN, authenticated, decrypted, and transcribed through the
+configured AssemblyAI integration before entering the normal message pipeline.
+The assistant replies with text; generated voice replies are not enabled because
+Flaresend's documented audio-send API requires a publicly reachable media URL.
+If the health-education model fails or returns an empty response, users receive
+a short service-unavailable fallback instead of no reply.
+
 ## Patient WhatsApp Registration
 
 The hosted registration page is available at `https://<your-domain>/register`.

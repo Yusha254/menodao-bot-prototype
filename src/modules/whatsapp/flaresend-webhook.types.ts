@@ -20,6 +20,11 @@ export interface FlaresendImageMessage {
   [key: string]: unknown;
 }
 
+export interface FlaresendAudioMessage extends FlaresendImageMessage {
+  seconds?: number;
+  isPtt?: boolean;
+}
+
 export interface FlaresendMessageContent {
   conversation?: string;
   extendedTextMessage?: {
@@ -32,11 +37,7 @@ export interface FlaresendMessageContent {
     mimetype?: string;
     [key: string]: any;
   };
-  audioMessage?: {
-    mimetype?: string;
-    seconds?: number;
-    [key: string]: any;
-  };
+  audioMessage?: FlaresendAudioMessage;
   buttonsResponseMessage?: {
     selectedButtonId?: string;
     selectedDisplayText?: string;

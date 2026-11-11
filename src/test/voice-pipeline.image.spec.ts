@@ -5,6 +5,7 @@ import { BookingService } from '../modules/booking/booking.service';
 import { ILlmProvider } from '../modules/ai/interfaces/llm-provider.interface';
 import { VoicePipelineService } from '../modules/voice-pipeline/voice-pipeline.service';
 import { AssemblyAiService } from '../modules/assemblyai/assemblyai.service';
+import { DR_PAPI_FALLBACK_REPLY } from '../prompts';
 
 describe('VoicePipelineService image handling', () => {
   it('passes health-education images to the response model without persisting image bytes', async () => {
@@ -79,5 +80,47 @@ describe('VoicePipelineService image handling', () => {
         }),
       }),
     );
+  });
+
+  it('sends and logs a user-facing fallback when the health model fails', async () => {
+    const generateCompletion = jest
+      .fn<ILlmProvider['generateCompletion']>()
+      .mockResolvedValueOnce('{"intent":"HEALTH_EDUCATION","confidence":0.95}')
+      .mockRejectedValueOnce(new Error('provider unavailable'));
+    const messageLogCreate = jest.fn();
+    const prisma = {
+      user: {
+        upsert: jest
+          .fn<() => Promise<{ id: string }>>()
+          .mockResolvedValue({ id: 'user-1' }),
+      },
+      bookingDraft: {
+        findUnique: jest.fn<() => Promise<null>>().mockResolvedValue(null),
+      },
+      messageLog: {
+        create: messageLogCreate,
+      },
+    } as unknown as PrismaService;
+    const service = new VoicePipelineService(
+      prisma,
+      new ConfigService(),
+      {} as AssemblyAiService,
+      { generateCompletion } as ILlmProvider,
+      {} as BookingService,
+    );
+
+    const result = await service.processTextPipeline(
+      'What should I do about a toothache?',
+      '254712345678',
+    );
+
+    expect(result.patientMessage).toBe(DR_PAPI_FALLBACK_REPLY);
+    expect(messageLogCreate).toHaveBeenLastCalledWith({
+      data: {
+        userId: 'user-1',
+        role: 'assistant',
+        content: DR_PAPI_FALLBACK_REPLY,
+      },
+    });
   });
 });

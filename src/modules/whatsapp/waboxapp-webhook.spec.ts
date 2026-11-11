@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { VoicePipelineService } from '../voice-pipeline/voice-pipeline.service';
+import { FlaresendApiClient } from './flaresend-api.client';
 import { WhatsappApiClient } from './whatsapp-api.client';
 import { WHATSAPP_CLIENT } from './interfaces/whatsapp-provider.interface';
 import { WhatsappIdentityService } from './whatsapp-identity.service';
@@ -101,6 +102,7 @@ describe('Waboxapp webhook handling', () => {
         },
         { provide: VoicePipelineService, useValue: voicePipelineService },
         { provide: WHATSAPP_CLIENT, useValue: whatsappClient },
+        { provide: FlaresendApiClient, useValue: { downloadAudio: jest.fn() } },
         { provide: WhatsappApiClient, useValue: {} },
         { provide: WhatsappIdentityService, useValue: whatsappIdentityService },
       ],
@@ -138,6 +140,7 @@ describe('Waboxapp webhook handling', () => {
       undefined,
       undefined,
       '254700000002',
+      undefined,
     );
   });
 
@@ -302,6 +305,7 @@ describe('Waboxapp webhook handling', () => {
       undefined,
       undefined,
       lid,
+      undefined,
     );
     expect(whatsappClient.sendTextMessage).toHaveBeenCalledWith(
       phone,

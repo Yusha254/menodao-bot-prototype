@@ -10,7 +10,10 @@ import {
 import { Readable } from 'stream';
 import { LlmImageInput } from '../ai/interfaces/llm-provider.interface';
 import { IWhatsappClient } from './interfaces/whatsapp-provider.interface';
-import { FlaresendImageMessage } from './flaresend-webhook.types';
+import {
+  FlaresendAudioMessage,
+  FlaresendImageMessage,
+} from './flaresend-webhook.types';
 
 interface FlaresendSendResponse {
   success?: boolean;
@@ -20,11 +23,14 @@ interface FlaresendSendResponse {
 
 const MAX_INBOUND_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_ENCRYPTED_IMAGE_BYTES = MAX_INBOUND_IMAGE_BYTES + 26;
+const MAX_INBOUND_AUDIO_BYTES = 16 * 1024 * 1024;
+const MAX_ENCRYPTED_AUDIO_BYTES = MAX_INBOUND_AUDIO_BYTES + 26;
 const SUPPORTED_IMAGE_TYPES = new Set([
   'image/jpeg',
   'image/png',
   'image/webp',
 ]);
+const SUPPORTED_AUDIO_TYPES = new Set(['audio/ogg', 'audio/opus']);
 
 @Injectable()
 export class FlaresendApiClient implements IWhatsappClient {
@@ -52,8 +58,8 @@ export class FlaresendApiClient implements IWhatsappClient {
     this.mediaHttp = axios.create({
       timeout: 15000,
       maxRedirects: 0,
-      maxContentLength: MAX_ENCRYPTED_IMAGE_BYTES,
-      maxBodyLength: MAX_ENCRYPTED_IMAGE_BYTES,
+      maxContentLength: MAX_ENCRYPTED_AUDIO_BYTES,
+      maxBodyLength: MAX_ENCRYPTED_AUDIO_BYTES,
     });
   }
 
@@ -149,15 +155,61 @@ export class FlaresendApiClient implements IWhatsappClient {
       throw new Error('Unsupported WhatsApp image type.');
     }
 
-    const mediaKey = this.decodeMediaKey(message.mediaKey);
-    const declaredSize = this.readFileSize(
-      message.fileLength ?? message.fileSize,
+    const imageData = await this.downloadAndDecryptMedia(
+      message,
+      'Image',
+      MAX_INBOUND_IMAGE_BYTES,
     );
-    if (declaredSize !== undefined && declaredSize > MAX_INBOUND_IMAGE_BYTES) {
-      throw new Error('WhatsApp image exceeds the maximum supported size.');
+
+    if (!this.hasValidImageSignature(imageData, mimeType)) {
+      throw new Error('WhatsApp image content does not match its media type.');
     }
 
-    const mediaUrl = this.getMediaUrl(message);
+    return { mimeType, data: imageData };
+  }
+
+  async downloadAudio(message: FlaresendAudioMessage): Promise<Buffer> {
+    const mimeType = message.mimetype?.split(';')[0]?.toLowerCase();
+    if (!mimeType || !SUPPORTED_AUDIO_TYPES.has(mimeType)) {
+      throw new Error('Unsupported WhatsApp voice note type.');
+    }
+
+    const audioData = await this.downloadAndDecryptMedia(
+      message,
+      'Audio',
+      MAX_INBOUND_AUDIO_BYTES,
+    );
+    if (!audioData.subarray(0, 4).equals(Buffer.from('OggS'))) {
+      throw new Error(
+        'WhatsApp voice note content is not a valid Ogg audio file.',
+      );
+    }
+
+    return audioData;
+  }
+
+  /**
+   * Downloads and decrypts encrypted media from WhatsApp's trusted media hosts.
+   */
+  private async downloadAndDecryptMedia(
+    message: FlaresendImageMessage,
+    mediaType: 'Image' | 'Audio',
+    maxBytes: number,
+  ): Promise<Buffer> {
+    const mediaName = mediaType.toLowerCase();
+    const maxEncryptedBytes = maxBytes + 26;
+    const mediaKey = this.decodeMediaKey(message.mediaKey, mediaName);
+    const declaredSize = this.readFileSize(
+      message.fileLength ?? message.fileSize,
+      mediaName,
+    );
+    if (declaredSize !== undefined && declaredSize > maxBytes) {
+      throw new Error(
+        `WhatsApp ${mediaName} exceeds the maximum supported size.`,
+      );
+    }
+
+    const mediaUrl = this.getMediaUrl(message, mediaName);
     let response: AxiosResponse<Readable>;
     try {
       response = await this.mediaHttp.get<Readable>(mediaUrl.toString(), {
@@ -168,18 +220,17 @@ export class FlaresendApiClient implements IWhatsappClient {
         ? error.response?.status
         : undefined;
       this.logger.warn(
-        `Flaresend image download failed (${status ? `HTTP ${status}` : 'network error'}).`,
+        `Flaresend ${mediaName} download failed (${status ? `HTTP ${status}` : 'network error'}).`,
       );
-      throw new Error('Unable to download the WhatsApp image.');
+      throw new Error(`Unable to download the WhatsApp ${mediaName}.`);
     }
 
     const responseSize = Number(response.headers['content-length']);
-    if (
-      Number.isFinite(responseSize) &&
-      responseSize > MAX_ENCRYPTED_IMAGE_BYTES
-    ) {
+    if (Number.isFinite(responseSize) && responseSize > maxEncryptedBytes) {
       response.data.destroy();
-      throw new Error('WhatsApp image exceeds the maximum supported size.');
+      throw new Error(
+        `WhatsApp ${mediaName} exceeds the maximum supported size.`,
+      );
     }
 
     const encryptedChunks: Buffer[] = [];
@@ -188,26 +239,29 @@ export class FlaresendApiClient implements IWhatsappClient {
       for await (const chunk of response.data) {
         const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         encryptedSize += bytes.length;
-        if (encryptedSize > MAX_ENCRYPTED_IMAGE_BYTES) {
+        if (encryptedSize > maxEncryptedBytes) {
           response.data.destroy();
-          throw new Error('WhatsApp image exceeds the maximum supported size.');
+          throw new Error(
+            `WhatsApp ${mediaName} exceeds the maximum supported size.`,
+          );
         }
         encryptedChunks.push(bytes);
       }
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message === 'WhatsApp image exceeds the maximum supported size.'
+        error.message ===
+          `WhatsApp ${mediaName} exceeds the maximum supported size.`
       ) {
         throw error;
       }
-      this.logger.warn('Flaresend image download stream failed.');
-      throw new Error('Unable to download the WhatsApp image.');
+      this.logger.warn(`Flaresend ${mediaName} download stream failed.`);
+      throw new Error(`Unable to download the WhatsApp ${mediaName}.`);
     }
     const encrypted = Buffer.concat(encryptedChunks, encryptedSize);
 
-    if (encrypted.length < 26 || encrypted.length > MAX_ENCRYPTED_IMAGE_BYTES) {
-      throw new Error('WhatsApp image has an invalid encrypted size.');
+    if (encrypted.length < 26 || encrypted.length > maxEncryptedBytes) {
+      throw new Error(`WhatsApp ${mediaName} has an invalid encrypted size.`);
     }
 
     const ciphertext = encrypted.subarray(0, -10);
@@ -217,7 +271,7 @@ export class FlaresendApiClient implements IWhatsappClient {
         'sha256',
         mediaKey,
         Buffer.alloc(0),
-        Buffer.from('WhatsApp Image Keys'),
+        Buffer.from(`WhatsApp ${mediaType} Keys`),
         112,
       ),
     );
@@ -231,45 +285,38 @@ export class FlaresendApiClient implements IWhatsappClient {
       .subarray(0, 10);
 
     if (!timingSafeEqual(receivedMac, expectedMac)) {
-      throw new Error('WhatsApp image integrity verification failed.');
+      throw new Error(`WhatsApp ${mediaName} integrity verification failed.`);
     }
 
-    let imageData: Buffer;
+    let mediaData: Buffer;
     try {
       const decipher = createDecipheriv('aes-256-cbc', cipherKey, iv);
-      imageData = Buffer.concat([
+      mediaData = Buffer.concat([
         decipher.update(ciphertext),
         decipher.final(),
       ]);
     } catch {
-      throw new Error('Unable to decrypt the WhatsApp image.');
+      throw new Error(`Unable to decrypt the WhatsApp ${mediaName}.`);
     }
 
     if (
-      imageData.length === 0 ||
-      imageData.length > MAX_INBOUND_IMAGE_BYTES ||
-      (declaredSize !== undefined && imageData.length !== declaredSize)
+      mediaData.length === 0 ||
+      mediaData.length > maxBytes ||
+      (declaredSize !== undefined && mediaData.length !== declaredSize)
     ) {
-      throw new Error('WhatsApp image has an invalid size.');
+      throw new Error(`WhatsApp ${mediaName} has an invalid size.`);
     }
 
-    if (!this.hasValidImageSignature(imageData, mimeType)) {
-      throw new Error('WhatsApp image content does not match its media type.');
-    }
-
-    return { mimeType, data: imageData };
+    return mediaData;
   }
 
-  /**
-   * Audio media downloads are not supported by the current Flaresend integration.
-   */
   async downloadMedia(mediaId: string): Promise<Buffer> {
     const errorMsg = `Media download is not supported by FlareSend API for media ID: ${mediaId}.`;
     this.logger.warn(errorMsg);
     throw new Error(errorMsg);
   }
 
-  private decodeMediaKey(value: unknown): Buffer {
+  private decodeMediaKey(value: unknown, mediaName: string): Buffer {
     let mediaKey: Buffer;
     if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
       mediaKey = Buffer.from(value);
@@ -279,7 +326,7 @@ export class FlaresendApiClient implements IWhatsappClient {
         .replace(/-/g, '+')
         .replace(/_/g, '/');
       if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
-        throw new Error('WhatsApp image is missing a valid media key.');
+        throw new Error(`WhatsApp ${mediaName} is missing a valid media key.`);
       }
       mediaKey = Buffer.from(base64, 'base64');
     } else if (
@@ -295,16 +342,16 @@ export class FlaresendApiClient implements IWhatsappClient {
     ) {
       mediaKey = Buffer.from(value.data);
     } else {
-      throw new Error('WhatsApp image is missing a valid media key.');
+      throw new Error(`WhatsApp ${mediaName} is missing a valid media key.`);
     }
 
     if (mediaKey.length !== 32) {
-      throw new Error('WhatsApp image has an invalid media key.');
+      throw new Error(`WhatsApp ${mediaName} has an invalid media key.`);
     }
     return mediaKey;
   }
 
-  private readFileSize(value: unknown): number | undefined {
+  private readFileSize(value: unknown, mediaName: string): number | undefined {
     if (value === undefined || value === null) {
       return undefined;
     }
@@ -315,12 +362,12 @@ export class FlaresendApiClient implements IWhatsappClient {
           ? Number(value)
           : NaN;
     if (!Number.isSafeInteger(fileSize) || fileSize < 0) {
-      throw new Error('WhatsApp image has an invalid file size.');
+      throw new Error(`WhatsApp ${mediaName} has an invalid file size.`);
     }
     return fileSize;
   }
 
-  private getMediaUrl(message: FlaresendImageMessage): URL {
+  private getMediaUrl(message: FlaresendImageMessage, mediaName: string): URL {
     let mediaUrl: URL;
     try {
       if (message.url) {
@@ -335,7 +382,7 @@ export class FlaresendApiClient implements IWhatsappClient {
         throw new Error('Missing media URL.');
       }
     } catch {
-      throw new Error('WhatsApp image has an invalid media URL.');
+      throw new Error(`WhatsApp ${mediaName} has an invalid media URL.`);
     }
 
     const hostname = mediaUrl.hostname.toLowerCase();
@@ -346,7 +393,7 @@ export class FlaresendApiClient implements IWhatsappClient {
       mediaUrl.username !== '' ||
       mediaUrl.password !== ''
     ) {
-      throw new Error('WhatsApp image has an unsupported media URL.');
+      throw new Error(`WhatsApp ${mediaName} has an unsupported media URL.`);
     }
     return mediaUrl;
   }

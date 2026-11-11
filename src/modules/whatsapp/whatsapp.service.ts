@@ -2,7 +2,10 @@ import { createHash } from 'crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { VoicePipelineService } from '../voice-pipeline/voice-pipeline.service';
+import {
+  VoicePipelineService,
+  VOICE_NOTE_FALLBACK_REPLY,
+} from '../voice-pipeline/voice-pipeline.service';
 import { WhatsappApiClient } from './whatsapp-api.client';
 import { FlaresendApiClient } from './flaresend-api.client';
 import {
@@ -356,12 +359,33 @@ export class WhatsappService {
         this.logger.warn('Ignoring voice note from an unlinked WhatsApp LID.');
         return;
       }
-      this.logger.log(
-        'Received voice note via Flaresend. Media download is not supported.',
+      let audioBuffer: Buffer;
+      try {
+        audioBuffer = await this.flaresendApiClient.downloadAudio(
+          data.message.audioMessage,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Unable to download Flaresend voice note: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        await this.whatsappClient.sendTextMessage(
+          recipientPhone,
+          VOICE_NOTE_FALLBACK_REPLY,
+        );
+        return;
+      }
+
+      const result = await this.voicePipelineService.processVoicePipeline(
+        audioBuffer,
+        recipientPhone,
+        undefined,
+        whatsappId,
       );
       await this.whatsappClient.sendTextMessage(
         recipientPhone,
-        'Samahani, hatuwezi kusikiliza ujumbe wa sauti kwa sasa. Tafadhali andika ujumbe wako kwa maneno au upige simu kliniki. Asante!',
+        result.patientMessage || VOICE_NOTE_FALLBACK_REPLY,
       );
       return;
     }
